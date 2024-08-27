@@ -1,0 +1,1 @@
+query_id=AAHD9YgxAwAAAMP1iDF01Cyb&user=%7B%22id%22%3A7273510339%2C%22first_name%22%3A%22Cangkul%203%20%F0%9F%A6%B4%22%2C%22last_name%22%3A%22Ibuk%20Boloh%22%2C%22username%22%3A%22Ladangcuanku2%22%2C%22language_code%22%3A%22en%22%2C%22allows_write_to_pm%22%3Atrue%7D&auth_date=1724726681&hash=645e952dcb34ea8277a912cb9b767c5ae5f4fe818404185952a9d9b737c5321d
