@@ -5,6 +5,8 @@ import json
 import random
 import requests
 import argparse
+import telegram
+import asyncio
 from json import dumps as dp, loads as ld
 from datetime import datetime
 from colorama import *
@@ -21,6 +23,8 @@ biru = Fore.LIGHTBLUE_EX
 reset = Style.RESET_ALL
 hitam = Fore.LIGHTBLACK_EX
 
+TELEGRAM_BOT_TOKEN = '7534033949:AAHeGUzWE1p0_WnwaTK3L7hbiH7O3gnwybE'
+TELEGRAM_CHAT_ID = '5637543234'
 
 class BlumTod:
     def __init__(self):
@@ -38,6 +42,10 @@ class BlumTod:
             "accept-language": "en,en-US;q=0.9",
         }
         self.garis = putih + "~" * 50
+
+    async def send_telegram_message(self, message):
+        bot = telegram.Bot(TELEGRAM_BOT_TOKEN)
+        await bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
 
     def renew_access_token(self, tg_data):
         headers = self.base_headers.copy()
@@ -63,26 +71,22 @@ class BlumTod:
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url_task, headers)
         for tasks in res.json():
-            for task in tasks.get("tasks"):
+            for task in tasks.get("tasks", []):
                 task_id = task["id"]
                 task_title = task["title"]
                 task_status = task["status"]
                 if task_status == "NOT_STARTED":
-                    url_start = (
-                        f"https://game-domain.blum.codes/api/v1/tasks/{task_id}/start"
-                    )
+                    url_start = f"https://game-domain.blum.codes/api/v1/tasks/{task_id}/start"
                     res = self.http(url_start, headers, "")
                     if "message" in res.text:
                         continue
 
-                    url_claim = (
-                        f"https://game-domain.blum.codes/api/v1/tasks/{task_id}/claim"
-                    )
+                    url_claim = f"https://game-domain.blum.codes/api/v1/tasks/{task_id}/claim"
                     res = self.http(url_claim, headers, "")
                     if "message" in res.text:
                         continue
 
-                    status = res.json()["status"]
+                    status = res.json().get("status")
                     if status == "CLAIMED":
                         self.log(f"{hijau}success complete task {task_title} !")
                         continue
@@ -99,7 +103,7 @@ class BlumTod:
         headers = self.base_headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url, headers, "")
-        balance = res.json()["availableBalance"]
+        balance = res.json().get("availableBalance", 0)
         self.log(f"{hijau}balance after claim : {putih}{balance}")
         return
 
@@ -108,14 +112,15 @@ class BlumTod:
         headers = self.base_headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url, headers)
-        balance = res.json()["availableBalance"]
+        data = res.json()
+        balance = data.get("availableBalance", 0)
         self.log(f"{hijau}balance : {putih}{balance}")
         if only_show_balance:
             return
-        timestamp = round(res.json()["timestamp"] / 1000)
-        if "farming" not in res.json().keys():
+        timestamp = round(data.get("timestamp", 0) / 1000)
+        if "farming" not in data:
             return False, "not_started"
-        end_farming = round(res.json()["farming"]["endTime"] / 1000)
+        end_farming = round(data["farming"].get("endTime", 0) / 1000)
         if timestamp > end_farming:
             self.log(f"{hijau}now is time to claim farming !")
             return True, end_farming
@@ -130,7 +135,7 @@ class BlumTod:
         headers = self.base_headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url, headers, "")
-        end = res.json()["endTime"]
+        end = res.json().get("endTime", 0)
         end_date = datetime.fromtimestamp(end / 1000)
         self.log(f"{hijau}start farming successfully !")
         self.log(f"{hijau}end farming : {putih}{end_date}")
@@ -141,19 +146,34 @@ class BlumTod:
         headers = self.base_headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url, headers)
-        can_claim = res.json()["canClaim"]
-        limit_invite = res.json()["limitInvitation"]
-        amount_claim = res.json()["amountForClaim"]
-        ref_code = res.json()["referralToken"]
+        
+        if res.status_code != 200:
+            self.log(f"{merah}Failed to get friend data. Status code: {res.status_code}")
+            return
+
+        try:
+            data = res.json()
+        except json.JSONDecodeError:
+            self.log(f"{merah}Failed to parse JSON response")
+            return
+
+        can_claim = data.get('canClaim', False)
+        limit_invite = data.get('limitInvitation', 0)
+        amount_claim = data.get('amountForClaim', 0)
+        ref_code = data.get('referralToken', '')
+
         self.log(f"{putih}limit invitation : {hijau}{limit_invite}")
         self.log(f"{hijau}claim amount : {putih}{amount_claim}")
         self.log(f"{putih}can claim : {hijau}{can_claim}")
+
         if can_claim:
             url_claim = "https://gateway.blum.codes/v1/friends/claim"
             res = self.http(url_claim, headers, "")
-            if "claimBalance" in res.json().keys():
-                self.log(f"{hijau}success claim referral bonus !")
-                return
+            if res.status_code == 200:
+                claim_data = res.json()
+                if "claimBalance" in claim_data:
+                    self.log(f"{hijau}success claim referral bonus !")
+                    return
             self.log(f"{merah}failed claim referral bonus !")
             return
 
@@ -180,19 +200,17 @@ class BlumTod:
         headers = self.base_headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url_balance, headers)
-        play = res.json()["playPasses"]
+        play = res.json().get("playPasses", 0)
         self.log(f"{hijau}you have {putih}{play}{hijau} game ticket")
-        
-        # Add a counter for tickets played
+
         tickets_played = 0
-        
+
         for i in range(play):
-            # Check if 10 tickets have been played
             if tickets_played == 10:
                 self.log(f"{kuning}Played 10 tickets. Sleeping for 10 seconds...")
                 time.sleep(10)
-                tickets_played = 0  # Reset the counter
-            
+                tickets_played = 0
+
             res = self.http(url_play, headers, "")
             game_id = res.json().get("gameId")
             if game_id is None:
@@ -204,11 +222,10 @@ class BlumTod:
             if "OK" in res.text:
                 self.log(f"{hijau}success earn {putih}{point}{hijau} from game !")
                 self.get_balance(access_token, only_show_balance=True)
-                tickets_played += 1  # Increment the counter
+                tickets_played += 1
             else:
                 self.log(f"{merah}failed earn {putih}{point}{merah} from game !")
-            
-            # Add a small delay between each game play to avoid rate limiting
+
             time.sleep(1)
 
     def data_parsing(self, data):
@@ -259,7 +276,7 @@ class BlumTod:
         config = json.loads(open("config.json", "r").read())
         self.AUTOTASK = config["auto_complete_task"]
         self.AUTOGAME = config["auto_play_game"]
-        self.DEFAULT_INTERVAL = config["interval"]
+        self.DEFAULT_INTERVAL = 10  # Changed from config["interval"] to 10
         self.MIN_WIN = config["game_point"]["low"]
         self.MAX_WIN = config["game_point"]["high"]
         if self.MIN_WIN > self.MAX_WIN:
@@ -273,9 +290,9 @@ class BlumTod:
         if res.status_code != 200:
             self.log(f"{merah}failed fetch ipinfo !")
             return False
-        city = res.json().get("city")
-        country = res.json().get("country")
-        region = res.json().get("region")
+        city = res.json().get("city", "Unknown")
+        country = res.json().get("country", "Unknown")
+        region = res.json().get("region", "Unknown")
         self.log(
             f"{hijau}country : {putih}{country} {hijau}region : {putih}{region} {hijau}city : {putih}{city}"
         )
@@ -305,6 +322,12 @@ class BlumTod:
                 self.log(f"{merah}bad proxy")
                 return False
 
+            except requests.exceptions.RequestException as e:
+                self.log(f"{merah}An error occurred: {str(e)}")
+
+            self.log(f"{merah}Retrying in 5 seconds...")
+            time.sleep(5)
+
     def countdown(self, t):
         while t:
             menit, detik = divmod(t, 60)
@@ -318,12 +341,13 @@ class BlumTod:
         print("                          ", flush=True, end="\r")
 
     def main(self):
+        # ... [rest of your main method, unchanged]
         banner = f"""
     {hijau}AUTO CLAIM FOR {putih}BLUM {hijau}/ {biru}@BlumCryptoBot
-    
+
     {hijau}By : {putih}t.me/rynalfan
     {putih}Github : {hijau}@vainzew
-    
+
     {hijau}Message : {putih}Dont forget to 'git pull' maybe i update the bot !
         """
         arg = argparse.ArgumentParser()
@@ -363,44 +387,54 @@ class BlumTod:
                 data_parse = self.data_parsing(data)
                 user = json.loads(data_parse["user"])
                 userid = user["id"]
-                self.log(f"{hijau}login as : {putih}{user['first_name']}")
+                username = user['first_name']
+                self.log(f"{hijau}login as : {putih}{username}")
                 if use_proxy:
                     proxy = proxies[no % len(proxies)]
                 self.set_proxy(proxy if use_proxy else None)
                 self.ipinfo() if use_proxy else None
                 access_token = self.get_local_token(userid)
                 failed_fetch_token = False
-                while True:
-                    if access_token is False:
-                        access_token = self.renew_access_token(data)
+                try:
+                    while True:
                         if access_token is False:
-                            self.save_failed_token(userid, data)
-                            failed_fetch_token = True
-                            break
-                        self.save_local_token(userid, access_token)
-                    expired = self.is_expired(access_token)
-                    if expired:
-                        access_token = False
+                            access_token = self.renew_access_token(data)
+                            if access_token is False:
+                                self.save_failed_token(userid, data)
+                                failed_fetch_token = True
+                                raise Exception(f"Failed to fetch token for account: {username}")
+                            self.save_local_token(userid, access_token)
+                        expired = self.is_expired(access_token)
+                        if expired:
+                            access_token = False
+                            continue
+                        break
+                    
+                    if failed_fetch_token:
                         continue
-                    break
-                if failed_fetch_token:
-                    continue
-                self.checkin(access_token)
-                self.get_friend(access_token)
-                if self.AUTOTASK:
-                    self.solve_task(access_token)
-                status, res_bal = self.get_balance(access_token)
-                if status:
-                    self.claim_farming(access_token)
-                    res_bal = self.start_farming(access_token)
-                if isinstance(res_bal, str):
-                    res_bal = self.start_farming(access_token)
-                list_countdown.append(res_bal)
-                if self.AUTOGAME:
-                    self.playgame(access_token)
+                    
+                    self.checkin(access_token)
+                    self.get_friend(access_token)
+                    if self.AUTOTASK:
+                        self.solve_task(access_token)
+                    status, res_bal = self.get_balance(access_token)
+                    if status:
+                        self.claim_farming(access_token)
+                        res_bal = self.start_farming(access_token)
+                    if isinstance(res_bal, str):
+                        res_bal = self.start_farming(access_token)
+                    list_countdown.append(res_bal)
+                    if self.AUTOGAME:
+                        self.playgame(access_token)
+                except Exception as e:
+                    error_message = f"BLUM BOT: Account '{username}' (ID: {userid}) is not responding. Error: {str(e)}"
+                    self.log(f"{merah}{error_message}")
+                    asyncio.run(self.send_telegram_message(error_message))
+                
                 print(self.garis)
                 self.countdown(self.DEFAULT_INTERVAL)
-            min_countdown = min(list_countdown)
+            
+            min_countdown = min(list_countdown) if list_countdown else 0
             now = int(time.time())
             result = min_countdown - now
             if result <= 0:
@@ -408,11 +442,16 @@ class BlumTod:
 
             self.countdown(result)
 
-
 if __name__ == "__main__":
+    app = BlumTod()
+    app.load_config()
     try:
-        app = BlumTod()
-        app.load_config()
         app.main()
     except KeyboardInterrupt:
-        sys.exit()
+        asyncio.run(app.send_telegram_message("BLUM BOT: Script stopped by user"))
+    except Exception as e:
+        error_message = f"BLUM BOT: An error occurred: {str(e)}"
+        print(error_message)
+        asyncio.run(app.send_telegram_message(error_message))
+    finally:
+        asyncio.run(app.send_telegram_message("BLUM BOT: Script execution completed"))
