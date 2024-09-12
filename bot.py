@@ -39,7 +39,7 @@ class BlumTod:
             "accept-language": "en,en-US;q=0.9",
         }
         self.garis = putih + "~" * 50
-        self.telegram_bot_token = "7507240778:AAFGaA_ygypAo5sbq-v8d9Sghv_QURusO40"
+        self.telegram_bot_token = "7534033949:AAHeGUzWE1p0_WnwaTK3L7hbiH7O3gnwybE"
         self.telegram_chat_id = "5637543234"
 
     def renew_access_token(self, tg_data):
