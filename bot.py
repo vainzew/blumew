@@ -39,8 +39,6 @@ class BlumTod:
             "accept-language": "en,en-US;q=0.9",
         }
         self.garis = putih + "~" * 50
-        self.telegram_bot_token = "7534033949:AAHeGUzWE1p0_WnwaTK3L7hbiH7O3gnwybE"
-        self.telegram_chat_id = "5637543234"
 
     def renew_access_token(self, tg_data):
         headers = self.base_headers.copy()
@@ -61,41 +59,65 @@ class BlumTod:
         self.log(f"{hijau}success get access token ")
         return access_token
 
-    def solve_task(self, access_token):
-        url_task = "https://game-domain.blum.codes/api/v1/tasks"
+    def solve(self, task: dict, access_token):
         headers = self.base_headers.copy()
-        headers["Authorization"] = f"Bearer {access_token}"
+        headers["authorization"] = f"Bearer {access_token}"
+        ignore_tasks = [
+            "39391eb2-f031-4954-bd8a-e7aecbb1f192",  # wallet connect
+            "d3716390-ce5b-4c26-b82e-e45ea7eba258",  # invite task
+            "f382ec3f-089d-46de-b921-b92adfd3327a",  # invite task
+            "220ee7b1-cca4-4af8-838a-2001cb42b813",  # invite task
+            "5ecf9c15-d477-420b-badf-058537489524",  # invite task
+            "c4e04f2e-bbf5-4e31-917b-8bfa7c4aa3aa",  # invite task
+        ]
+        task_id = task.get("id")
+        task_title = task.get("title")
+        task_status = task.get("status")
+        start_task_url = f"https://earn-domain.blum.codes/api/v1/tasks/{task_id}/start"
+        claim_task_url = f"https://earn-domain.blum.codes/api/v1/tasks/{task_id}/claim"
+        if task_id in ignore_tasks:
+            return
+        if task_status == "FINISHED":
+            self.log(f"{kuning}already complete task id {putih}{task_id} !")
+            return
+        if task_status == "READY_FOR_CLAIM":
+            _res = self.http(claim_task_url, headers, "")
+            _status = _res.json().get("status")
+            if _status == "FINISHED":
+                self.log(f"{hijau}success complete task id {putih}{task_id} !")
+                return
+        _res = self.http(start_task_url, headers, "")
+        self.countdown(5)
+        _status = _res.json().get("status")
+        if _status == "STARTED":
+            _res = self.http(claim_task_url, headers, "")
+            _status = _res.json().get("status")
+            if _status == "FINISHED":
+                self.log(f"{hijau}success complete task id {putih}{task_id} !")
+                return
+
+    def solve_task(self, access_token):
+        url_task = "https://earn-domain.blum.codes/api/v1/tasks"
+        headers = self.base_headers.copy()
+        headers["authorization"] = f"Bearer {access_token}"
         res = self.http(url_task, headers)
         for tasks in res.json():
             if isinstance(tasks, str):
                 self.log(f"{kuning}failed get task list !")
                 return
-            for task in tasks.get("tasks"):
-                # print(task)
-                task_id = task.get("id")
-                task_title = task.get("title")
-                task_status = task.get("status")
-                if task_status == "NOT_STARTED":
-                    url_start = (
-                        f"https://game-domain.blum.codes/api/v1/tasks/{task_id}/start"
-                    )
-                    res = self.http(url_start, headers, "")
-                    if "message" in res.text:
-                        continue
-
-                    url_claim = (
-                        f"https://game-domain.blum.codes/api/v1/tasks/{task_id}/claim"
-                    )
-                    res = self.http(url_claim, headers, "")
-                    if "message" in res.text:
-                        continue
-
-                    status = res.json().get("status")
-                    if status == "CLAIMED":
-                        self.log(f"{hijau}success complete task id {task_id} !")
-                        continue
-
-                self.log(f"{kuning}already complete task id {task_id} !")
+            for k in list(tasks.keys()):
+                if k != "tasks" and k != "subSections":
+                    continue
+                for t in tasks.get(k):
+                    if isinstance(t, dict):
+                        subtasks = t.get("subTasks")
+                        if subtasks is not None:
+                            for task in subtasks:
+                                self.solve(task, access_token)
+                            self.solve(t, access_token)
+                            continue
+                    for task in t.get("tasks"):
+                        self.solve(task, access_token)
 
     def set_proxy(self, proxy=None):
         self.ses = requests.Session()
@@ -161,7 +183,7 @@ class BlumTod:
         return round(end / 1000)
 
     def get_friend(self, access_token):
-        url = "https://gateway.blum.codes/v1/friends/balance"
+        url = "https://user-domain.blum.codes/api/v1/friends/balance"
         headers = self.base_headers.copy()
         headers["Authorization"] = f"Bearer {access_token}"
         res = self.http(url, headers)
@@ -172,7 +194,7 @@ class BlumTod:
         self.log(f"{hijau}referral balance : {putih}{amount_claim}")
         self.log(f"{putih}can claim referral : {hijau}{can_claim}")
         if can_claim:
-            url_claim = "https://gateway.blum.codes/v1/friends/claim"
+            url_claim = "https://user-domain.blum.codes/api/v1/friends/claim"
             res = self.http(url_claim, headers, "")
             if res.json().get("claimBalance") is not None:
                 self.log(f"{hijau}success claim referral bonus !")
@@ -266,6 +288,8 @@ class BlumTod:
         open("tokens.json", "w").write(json.dumps(tokens, indent=4))
 
     def is_expired(self, token):
+        if token is None or isinstance(token, bool):
+            return True
         header, payload, sign = token.split(".")
         payload = b64decode(payload + "==").decode()
         jload = json.loads(payload)
@@ -325,7 +349,7 @@ class BlumTod:
                 if not os.path.exists(logfile):
                     open(logfile, "a")
                 logsize = os.path.getsize(logfile)
-                if (logsize / (1024 * 2)) > 1:
+                if (logsize / 1024 / 1024) > 1:
                     open(logfile, "w").write("")
                 if data is None:
                     res = self.ses.get(url, headers=headers, timeout=30)
@@ -359,22 +383,6 @@ class BlumTod:
             t -= 1
             time.sleep(1)
         print("                          ", flush=True, end="\r")
-    
-    
-    def send_telegram_notification(self, message):
-        url = f"https://api.telegram.org/bot{self.telegram_bot_token}/sendMessage"
-        payload = {
-            "chat_id": self.telegram_chat_id,
-            "text": message
-        }
-        try:
-            response = requests.post(url, json=payload)
-            if response.status_code == 200:
-                self.log(f"{hijau}Telegram notification sent successfully")
-            else:
-                self.log(f"{merah}Failed to send Telegram notification")
-        except Exception as e:
-            self.log(f"{merah}Error sending Telegram notification: {str(e)}")
 
     def main(self):
         banner = f"""
@@ -441,8 +449,6 @@ class BlumTod:
                         continue
                     break
                 if failed_fetch_token:
-                    error_message = f"Error: Failed to fetch token for user {user['first_name']} (ID: {userid})"
-                    self.send_telegram_notification(error_message)
                     continue
                 self.checkin(access_token)
                 self.get_friend(access_token)
@@ -480,9 +486,4 @@ if __name__ == "__main__":
         app.load_config()
         app.main()
     except KeyboardInterrupt:
-        app.send_telegram_notification("Program stopped manually")
         sys.exit()
-    except Exception as e:
-        error_message = f"Program stopped due to an error: {str(e)}"
-        app.send_telegram_notification(error_message)
-        raise
